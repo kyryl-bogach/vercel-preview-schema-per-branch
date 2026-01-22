@@ -93,6 +93,7 @@ export default async function Home() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 0,
+                        margin: 0,
                         color: todo.completed ? 'white' : '#1095c1',
                         fontSize: '1rem',
                         fontWeight: 'bold',
