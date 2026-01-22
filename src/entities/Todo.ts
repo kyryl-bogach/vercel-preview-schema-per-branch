@@ -16,3 +16,4 @@ export class Todo {
   @Property({ type: 'Date' })
   createdAt: Date = new Date();
 }
+// TODO: Add priority field to todos
