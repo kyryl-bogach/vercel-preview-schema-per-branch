@@ -12,8 +12,8 @@ async function addTodo(formData: FormData) {
 
   const orm = await getORM();
   const em = orm.em.fork();
-  em.create(Todo, { title: title.trim() });
-  await em.flush();
+  const todo = em.create(Todo, { title: title.trim() });
+  await em.persistAndFlush(todo);
   revalidatePath('/');
 }
 
