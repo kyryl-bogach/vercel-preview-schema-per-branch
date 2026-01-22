@@ -31,6 +31,7 @@ function getDatabaseUrl(): string {
 export default defineConfig({
   entities: [Todo],
   clientUrl: getDatabaseUrl(),
+  schema: getSchemaName(),
   migrations: {
     tableName: 'mikro_orm_migrations',
     path: './src/migrations',
