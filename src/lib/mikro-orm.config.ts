@@ -1,5 +1,6 @@
 import { defineConfig } from '@mikro-orm/postgresql';
 import { getSchemaName } from './schema-utils';
+import { Todo } from '../entities/Todo';
 
 /**
  * Builds the database URL with schema parameter.
@@ -28,8 +29,7 @@ function getDatabaseUrl(): string {
 }
 
 export default defineConfig({
-  entities: ['./src/entities/**/*.ts'],
-  entitiesTs: ['./src/entities/**/*.ts'],
+  entities: [Todo],
   clientUrl: getDatabaseUrl(),
   migrations: {
     tableName: 'mikro_orm_migrations',
