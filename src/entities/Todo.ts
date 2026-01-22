@@ -1,6 +1,6 @@
 import { Entity, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core';
 
-@Entity()
+@Entity({ tableName: 'todo' })
 export class Todo {
   [OptionalProps]?: 'completed' | 'createdAt';
 
