@@ -1,7 +1,9 @@
-import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
+import { Entity, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core';
 
 @Entity()
 export class Todo {
+  [OptionalProps]?: 'completed' | 'createdAt';
+
   @PrimaryKey({ type: 'number' })
   id!: number;
 

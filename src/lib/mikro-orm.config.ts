@@ -28,12 +28,14 @@ function getDatabaseUrl(): string {
 }
 
 export default defineConfig({
-  entities: ['./dist/entities'],
-  entitiesTs: ['./src/entities'],
+  entities: ['./src/entities/**/*.ts'],
+  entitiesTs: ['./src/entities/**/*.ts'],
   clientUrl: getDatabaseUrl(),
   migrations: {
-    path: './dist/migrations',
+    tableName: 'mikro_orm_migrations',
+    path: './src/migrations',
     pathTs: './src/migrations',
+    glob: '!(*.d).{js,ts}',
   },
   debug: process.env.NODE_ENV === 'development',
 });

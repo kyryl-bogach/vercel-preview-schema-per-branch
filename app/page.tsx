@@ -3,6 +3,8 @@ import { Todo } from '@/src/entities/Todo';
 import { revalidatePath } from 'next/cache';
 import { getSchemaName } from '@/src/lib/schema-utils';
 
+export const dynamic = 'force-dynamic';
+
 async function addTodo(formData: FormData) {
   'use server';
   const title = formData.get('title') as string;

@@ -7,9 +7,8 @@
     "build": "npm run migrate && next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate": "tsx scripts/prepare-preview-db.ts",
-    "migration:create": "mikro-orm migration:create",
-    "migration:up": "mikro-orm migration:up"
+    "migrate": "node -r dotenv/config ./node_modules/.bin/mikro-orm migration:up",
+    "migration:create": "node -r dotenv/config ./node_modules/.bin/mikro-orm migration:create"
   },
   "dependencies": {
     "@mikro-orm/core": "^6.6.5",
@@ -26,8 +25,10 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.4",
+    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5"
   },
