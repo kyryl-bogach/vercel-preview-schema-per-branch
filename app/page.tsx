@@ -12,7 +12,10 @@ async function addTodo(formData: FormData) {
 
   const orm = await getORM();
   const em = orm.em.fork();
-  const todo = em.create(Todo, { title: title.trim() });
+
+  const todo = new Todo();
+  todo.title = title.trim();
+
   await em.persistAndFlush(todo);
   revalidatePath('/');
 }
@@ -45,7 +48,7 @@ export default async function Home() {
   return (
     <main className="container">
       <header>
-        <h1>Schema-per-Branch Todo Demo</h1>
+        <h1>Schema-per-Branch TODO Demo</h1>
         <p>
           Current schema: <code>{schemaName}</code>
         </p>
