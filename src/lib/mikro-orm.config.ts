@@ -2,36 +2,18 @@ import { defineConfig } from '@mikro-orm/postgresql';
 import { getSchemaName } from './schema-utils';
 import { Todo } from '../entities/Todo';
 
-/**
- * Builds the database URL with schema parameter.
- *
- * Strategy:
- * 1. If DATABASE_URL_WITH_SCHEMA is set (production/develop override), use it
- * 2. Otherwise, build it from DATABASE_URL + ?schema=<computed_name>
- */
-function getDatabaseUrl(): string {
-  // Explicit override (production/develop)
-  if (process.env.DATABASE_URL_WITH_SCHEMA) {
-    return process.env.DATABASE_URL_WITH_SCHEMA;
-  }
+const schemaName = getSchemaName();
 
-  // Build dynamically for preview
-  const baseUrl = process.env.DATABASE_URL;
-  if (!baseUrl) {
-    throw new Error('DATABASE_URL is not set');
-  }
-
-  const schemaName = getSchemaName();
-
-  // Check if URL already has query params
-  const separator = baseUrl.includes('?') ? '&' : '?';
-  return `${baseUrl}${separator}schema=${schemaName}`;
-}
+// Log for debugging (visible in Vercel build logs)
+console.log(`[mikro-orm.config] Schema: ${schemaName}`);
+console.log(`[mikro-orm.config] DATABASE_URL: ${process.env.DATABASE_URL?.substring(0, 50)}...`);
+console.log(`[mikro-orm.config] VERCEL_GIT_PULL_REQUEST_ID: ${process.env.VERCEL_GIT_PULL_REQUEST_ID || 'not set'}`);
+console.log(`[mikro-orm.config] VERCEL_GIT_COMMIT_REF: ${process.env.VERCEL_GIT_COMMIT_REF || 'not set'}`);
 
 export default defineConfig({
   entities: [Todo],
-  clientUrl: getDatabaseUrl(),
-  schema: getSchemaName(),
+  clientUrl: process.env.DATABASE_URL,
+  schema: schemaName,
   migrations: {
     tableName: 'mikro_orm_migrations',
     path: './src/migrations',
