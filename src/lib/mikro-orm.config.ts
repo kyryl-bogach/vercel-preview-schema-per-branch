@@ -19,6 +19,13 @@ export default defineConfig({
     path: './src/migrations',
     pathTs: './src/migrations',
     glob: '!(*.d).{js,ts}',
+    // Set search_path to ensure migrations run in correct schema
+    emit: 'ts',
+  },
+  driverOptions: {
+    connection: {
+      options: `-c search_path=${schemaName}`,
+    },
   },
   debug: process.env.NODE_ENV === 'development',
 });
