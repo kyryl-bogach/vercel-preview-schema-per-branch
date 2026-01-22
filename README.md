@@ -1,513 +1,257 @@
 # Schema-per-Branch Preview Demo
 
-**Portable solution for isolated preview deployments using Postgres schemas.**
+Portable solution for isolated preview deployments using Postgres schemas. Works with any Postgres database - no vendor lock-in.
 
-This project demonstrates how to implement schema-per-branch preview deployments on Vercel without relying on vendor-specific database branching features (like Neon or PlanetScale). It works with any Postgres database.
+## How It Works
 
-## The Problem
-
-When multiple developers work on features requiring database migrations:
-- Running migrations in a shared preview database breaks other PRs
-- Not running migrations means features can't be tested in preview
-- Using the same database for all previews creates conflicts
-
-## The Solution
-
-**Schema-per-branch**: Each preview deployment gets an isolated Postgres schema within the same database.
+Each PR gets its own isolated Postgres schema:
 
 ```
 Database: myapp
-├── Schema: public (production)
-├── Schema: feature_add_auth (PR #123)
-├── Schema: bugfix_login_issue (PR #124)
-└── Schema: refactor_api (PR #125)
+├── Schema: public          (production)
+├── Schema: pr_2            (PR #2)
+├── Schema: pr_3            (PR #3)
+└── Schema: pr_4            (PR #4)
 ```
 
-### How It Works
-
-1. **Build time**: Run migrations (single `CREATE SCHEMA IF NOT EXISTS` + migrations)
-2. **Runtime**: App connects to schema (`pr_123` or sanitized branch name)
-3. **PR close**: GitHub Action drops the schema
-
-**Key insight**: You don't manually "prepare" the database. Just connect with the schema parameter and run migrations - one idempotent `CREATE SCHEMA IF NOT EXISTS` statement ensures the namespace exists, then migrations populate it.
-
-**Benefits:**
-- No separate database setup step
-- Migrations are self-contained
-- Works with any Postgres (no vendor lock-in)
-- PR number strategy eliminates name collisions
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Vercel Preview Build                    │
-├─────────────────────────────────────────────────────────────┤
-│ 1. Read VERCEL_GIT_PULL_REQUEST_ID (preferred)             │
-│    or VERCEL_GIT_COMMIT_REF (fallback)                      │
-│ 2. Compute schema name: pr_123 or sanitized branch          │
-│ 3. Run migration script:                                     │
-│    - CREATE SCHEMA IF NOT EXISTS "pr_123"  (idempotent)     │
-│    - Run pending migrations in that schema                   │
-│ 4. Build Next.js app                                         │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Runtime (Serverless)                    │
-├─────────────────────────────────────────────────────────────┤
-│ • MikroORM connects with schema: "pr_123"                   │
-│ • All queries scoped to that schema                          │
-│ • Todos isolated per preview                                 │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    PR Close (GitHub Action)                  │
-├─────────────────────────────────────────────────────────────┤
-│ 1. Get PR number or sanitize branch (same logic)            │
-│ 2. DROP SCHEMA "pr_123" CASCADE                              │
-└─────────────────────────────────────────────────────────────┘
-```
+**Flow:**
+1. **PR opened** → Vercel builds → migrations run in `pr_X` schema
+2. **Runtime** → app queries `pr_X` schema → todos isolated
+3. **PR closed** → GitHub Action drops `pr_X` schema
 
 ## Setup
 
-### 1. Clone & Install
+### 1. Local Development
 
 ```bash
-git clone <your-repo>
-cd vercel-preview-schema-per-branch
 npm install
-```
-
-### 2. Database Setup
-
-You need a Postgres database accessible from Vercel. This demo uses `postgres.bogach.es:5432`.
-
-```bash
-# Copy example env
 cp .env.example .env.local
-
-# Edit .env.local
-DATABASE_URL=postgresql://user:password@postgres.bogach.es:5432/dbname
-```
-
-### 3. Create Initial Migration
-
-```bash
-npm run migration:create
-```
-
-This generates a migration in `src/migrations/` based on your entities.
-
-### 4. Run Locally
-
-```bash
+# Edit .env.local with your DATABASE_URL
 npm run dev
 ```
 
-Visit http://localhost:3000
+### 2. Vercel Environment Variables
 
-The app will use the `public` schema by default for local development.
+In Vercel Project Settings → Environment Variables, add:
 
-### 5. Deploy to Vercel
+| Variable | Value | Environment |
+|----------|-------|-------------|
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` | All Environments |
+| `DB_SCHEMA` | `public` | Production (optional override) |
 
-#### a. Create Vercel Project
+**Why these variables:**
+- `DATABASE_URL` - Base connection string for all environments, required at build time for migrations
+- `DB_SCHEMA` - Optional override for production/develop to force specific schema instead of auto-computed
 
-```bash
-vercel
+**How schema is determined:**
+- Preview deployments: `pr_X` (from `VERCEL_GIT_PULL_REQUEST_ID`)
+- Fallback: sanitized branch name (e.g., `feature/auth` → `feature_auth`)
+- Production override: `DB_SCHEMA=public` forces public schema
+- Local dev: defaults to `public`
+
+### 3. GitHub Secret
+
+In Repository Settings → Secrets and variables → Actions → Secrets:
+
+| Name | Value | Used For |
+|------|-------|----------|
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` | Schema cleanup on PR close |
+
+**Why a secret:**
+Contains database credentials - must be encrypted. The GitHub Action needs this to connect and drop schemas when PRs close.
+
+### 4. GitHub Action (Already Configured)
+
+`.github/workflows/cleanup-preview.yml` automatically drops schemas when PRs close:
+
+```yaml
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    steps:
+      - name: Drop schema
+        run: |
+          psql "${{ secrets.DATABASE_URL }}" \
+            -c "DROP SCHEMA IF EXISTS \"pr_${{ github.event.pull_request.number }}\" CASCADE"
 ```
 
-#### b. Set Environment Variables
+## MikroORM-Specific Considerations
 
-In Vercel dashboard → Settings → Environment Variables:
+### 1. Schema Configuration
 
-**All Environments:**
-| Variable | Value | Scope |
-|----------|-------|-------|
-| `DATABASE_URL` | `postgresql://user:pass@postgres.bogach.es:5432/dbname` | All |
+MikroORM requires **both** `schema` config option **and** `search_path` for migrations to work properly:
 
-**Production Environment (Override):**
-| Variable | Value | Scope |
-|----------|-------|-------|
-| `DATABASE_URL_WITH_SCHEMA` | `postgresql://user:pass@postgres.bogach.es:5432/dbname?schema=public` | Production |
+```typescript
+// src/lib/mikro-orm.config.ts
+export default defineConfig({
+  entities: [Todo],
+  clientUrl: process.env.DATABASE_URL,  // Plain URL, no ?schema= parameter
+  schema: schemaName,  // Tells MikroORM which schema to use
+  driverOptions: {
+    connection: {
+      options: `-c search_path=${schemaName}`,  // Critical for migration tracking
+    },
+  },
+});
+```
 
-**Develop Environment (Override - optional):**
-| Variable | Value | Scope |
-|----------|-------|-------|
-| `DATABASE_URL_WITH_SCHEMA` | `postgresql://user:pass@postgres.bogach.es:5432/dbname?schema=develop` | Preview (filtered by branch: `develop`) |
+**Why both are needed:**
+- `schema` option - Scopes queries to the schema
+- `search_path` - Ensures migration tracking table (`mikro_orm_migrations`) is created in the correct schema
 
-**How it works:**
+Without `search_path`, migrations will run but tracking gets confused, causing "table already exists" errors on rebuilds.
 
-| Environment | DATABASE_URL | DATABASE_URL_WITH_SCHEMA | Computed URL |
-|-------------|--------------|--------------------------|--------------|
-| **Preview (PR #5)** | Set | Not set | `DATABASE_URL?schema=pr_5` |
-| **Production** | Set | Set (override) | Uses override directly |
-| **Develop branch** | Set | Set (override) | Uses override directly |
+Reference: [MikroORM GitHub Discussion #1886](https://github.com/mikro-orm/mikro-orm/discussions/1886)
 
-**Key points:**
-- `DATABASE_URL` must be available at **build time** (not just runtime)
-- Preview deployments auto-compute schema from PR number or branch name
-- Production/Develop explicitly override to avoid auto-computed schemas
+### 2. Entity Definition
 
-#### c. Set GitHub Secret
+Explicitly set table names to prevent minification issues in production builds:
 
-In GitHub → Settings → Secrets → Actions:
+```typescript
+@Entity({ tableName: 'todo' })  // Prevents Next.js from minifying class name
+export class Todo {
+  @PrimaryKey({ autoincrement: true })  // Explicit type needed
+  id!: number;
 
-- Name: `DATABASE_URL`
-- Value: `postgresql://user:pass@postgres.bogach.es:5432/dbname`
+  @Property({ type: 'string' })  // Explicit types required
+  title!: string;
+}
+```
 
-This is used by the cleanup workflow.
+### 3. Entity Imports
 
-### 6. Test Preview Flow
+Import entities directly, not via file paths:
 
-1. Create a branch: `git checkout -b test/preview-schema`
-2. Make a change, commit, push
-3. Open a PR (e.g., PR #5)
-4. Vercel builds preview:
-   - Build logs show: `Target schema: pr_5`
-   - Preview URL shows empty todo list with "Current schema: pr_5"
-5. Add todos in preview - they're isolated to `pr_5` schema
-6. Close/merge PR
-7. GitHub Action runs and drops `pr_5` schema
+```typescript
+// ✅ Good
+entities: [Todo]
+
+// ❌ Bad (fails in Next.js production)
+entities: ['./src/entities/**/*.ts']
+```
+
+### 4. Entity Persistence
+
+Use direct instantiation with `persistAndFlush`:
+
+```typescript
+// ✅ Good
+const todo = new Todo();
+todo.title = title;
+await em.persistAndFlush(todo);
+
+// ❌ Unreliable
+const todo = em.create(Todo, { title });
+await em.flush();
+```
+
+### 5. Decorator Metadata
+
+Add `import 'reflect-metadata'` at the top of:
+- `src/lib/db.ts`
+- Any script that uses MikroORM (e.g., migration scripts)
+
+This is required because `tsx` (used for running scripts) doesn't support `emitDecoratorMetadata`.
+
+## Testing Schema Isolation
+
+1. Create a PR (e.g., PR #2)
+2. Check Vercel build logs for: `[mikro-orm.config] Schema: pr_2`
+3. Open preview URL - add todos
+4. Create another PR (PR #3) - add different todos
+5. Verify todos don't leak between previews
+6. Close PR #2 - check database to confirm `pr_2` schema is dropped
+
+```sql
+-- List all preview schemas
+SELECT schema_name FROM information_schema.schemata
+WHERE schema_name LIKE 'pr_%';
+```
+
+## How Migrations Work
+
+Build script runs `mikro-orm migration:up` which:
+1. Connects to database with `schema` config
+2. Sets `search_path` to target schema
+3. Creates schema if it doesn't exist (via MikroORM)
+4. Runs pending migrations in that schema
+5. Tracks completed migrations in `mikro_orm_migrations` table within the schema
+
+**Key insight:** No manual "prepare" step needed. MikroORM handles schema creation when you provide the `schema` config option.
+
+## Limitations
+
+1. **Shared connection pool** - All previews share connection limits
+2. **Database-level objects** - Extensions, types, functions are global (not schema-scoped)
+3. **Manual cleanup dependency** - If GitHub Action fails, schemas accumulate
+4. **Build failures leave dirty state** - Failed migrations leave schema in inconsistent state
 
 ## Project Structure
 
 ```
 .
 ├── app/
-│   ├── layout.tsx              # PicoCSS layout
-│   └── page.tsx                # Todo UI (Server Components + Actions)
+│   ├── layout.tsx           # Root layout
+│   └── page.tsx             # Todo CRUD UI
 ├── src/
 │   ├── entities/
-│   │   └── Todo.ts             # MikroORM entity
+│   │   └── Todo.ts          # MikroORM entity
 │   ├── lib/
-│   │   ├── db.ts               # ORM singleton
-│   │   ├── mikro-orm.config.ts # ORM config with dynamic schema
-│   │   └── schema-utils.ts     # Branch name sanitization
-│   └── migrations/             # Generated migrations
-├── scripts/
-│   └── prepare-preview-db.ts   # Pre-build: create schema + migrate
+│   │   ├── db.ts            # ORM singleton
+│   │   ├── mikro-orm.config.ts    # Schema + search_path config
+│   │   └── schema-utils.ts        # Schema name logic
+│   └── migrations/          # Generated migrations
 ├── .github/workflows/
-│   └── cleanup-preview.yml     # Drop schema on PR close
-└── package.json                # Custom build script
+│   └── cleanup-preview.yml  # Drop schema on PR close
+└── package.json             # Build: migrate → next build
 ```
-
-## Key Files
-
-### `src/lib/schema-utils.ts`
-
-Schema naming strategy with PR number preference:
-
-```typescript
-export function getSchemaName(): string {
-  // 1. Explicit override (production/develop)
-  if (process.env.DB_SCHEMA) return process.env.DB_SCHEMA;
-
-  // 2. PR number (preferred - "pr_123")
-  if (process.env.VERCEL_GIT_PULL_REQUEST_ID) {
-    return `pr_${process.env.VERCEL_GIT_PULL_REQUEST_ID}`;
-  }
-
-  // 3. Sanitized branch name (fallback)
-  if (process.env.VERCEL_GIT_COMMIT_REF) {
-    return sanitizeBranchName(process.env.VERCEL_GIT_COMMIT_REF);
-  }
-
-  // 4. Local dev default
-  return 'public';
-}
-```
-
-**Why PR number is preferred:**
-- Guaranteed unique (no collisions)
-- Short and safe (no character sanitization needed)
-- Easier to track and cleanup
-
-**Critical**: This logic must match between:
-- App runtime (MikroORM config)
-- Build script (migration runner)
-- GitHub Action (cleanup)
-
-### `src/lib/mikro-orm.config.ts`
-
-Builds connection URL with schema parameter:
-
-```typescript
-function getDatabaseUrl(): string {
-  // Production/develop override
-  if (process.env.DATABASE_URL_WITH_SCHEMA) {
-    return process.env.DATABASE_URL_WITH_SCHEMA;
-  }
-
-  // Preview: build dynamically
-  const baseUrl = process.env.DATABASE_URL;
-  const schemaName = getSchemaName(); // pr_123 or sanitized branch
-  const separator = baseUrl.includes('?') ? '&' : '?';
-  return `${baseUrl}${separator}schema=${schemaName}`;
-}
-
-export default defineConfig({
-  clientUrl: getDatabaseUrl(), // Full URL with ?schema=
-  // ... entities, migrations, etc.
-});
-```
-
-**Benefits of this approach:**
-- Uses standard `?schema=` connection string parameter (same as Prisma)
-- Single `DATABASE_URL_WITH_SCHEMA` override for production/develop
-- No need to manage schema as separate config option
-- Cleaner Vercel environment variable setup
-
-### `scripts/prepare-preview-db.ts`
-
-Runs during `npm run build`:
-
-1. Ensures schema exists (`CREATE SCHEMA IF NOT EXISTS` - idempotent)
-2. Runs pending migrations in that schema
-3. Fails build if database unreachable
-
-**Key difference from manual preparation**: This is a single lightweight SQL statement, not a separate "prepare" phase. The schema is created as part of the migration process, just like Prisma's `migrate deploy` does automatically.
-
-### `package.json`
-
-```json
-{
-  "scripts": {
-    "build": "npm run migrate && next build",
-    "migrate": "tsx scripts/prepare-preview-db.ts"
-  }
-}
-```
-
-### `.github/workflows/cleanup-preview.yml`
-
-Triggers on PR close:
-
-```yaml
-- name: Drop schema
-  run: |
-    psql "${{ secrets.DATABASE_URL }}" \
-      -c "DROP SCHEMA IF EXISTS \"$SCHEMA\" CASCADE"
-```
-
-## Verification
-
-### Check Active Schemas
-
-```sql
--- List all preview schemas (pr_* pattern)
-SELECT schema_name
-FROM information_schema.schemata
-WHERE schema_name LIKE 'pr_%'
-   OR schema_name NOT IN ('pg_catalog', 'information_schema', 'public')
-ORDER BY schema_name;
-```
-
-You should see schemas like `pr_5`, `pr_7`, etc.
-
-### Test Schema Isolation
-
-1. Open PR #5 (schema: `pr_5`)
-2. Open PR #7 (schema: `pr_7`)
-3. Add todo "Task from PR 5" in preview for PR #5
-4. Add todo "Task from PR 7" in preview for PR #7
-5. Verify todos don't leak between previews (each shows different schema name)
-
-### Monitor Build Logs
-
-In Vercel build logs, look for:
-
-```
-[migrate] Target schema: pr_123
-[migrate] VERCEL_GIT_PULL_REQUEST_ID: 123
-[migrate] Ensuring schema "pr_123" exists...
-[migrate] Pending migrations: 2
-[migrate] ✅ Migrations completed
-```
-
-## Limitations
-
-### 1. Not True Isolation
-
-Database-level objects are shared:
-- **Extensions**: `CREATE EXTENSION postgis` affects entire database
-- **Types**: Custom enums, composite types are global
-- **Functions**: Stored procedures are database-wide
-
-**Impact**: One PR's migration creating a type can conflict with another PR.
-
-**Mitigation**: Avoid database-level objects in migrations, or coordinate manually.
-
-### 2. Connection Pool Limits
-
-All previews share the same connection pool.
-
-**Impact**: 10 active previews = 10x connections to same database.
-
-**Mitigation**: Use connection pooling (PgBouncer) or limit active previews.
-
-### 3. Schema Name Collisions
-
-**Solved by default**: This implementation uses `VERCEL_GIT_PULL_REQUEST_ID` (e.g., `pr_123`) by default, which guarantees uniqueness.
-
-**Fallback caveat**: If PR ID is unavailable (e.g., first push before PR is opened), it falls back to sanitized branch names, where collisions are theoretically possible but rare:
-- `feature/add-auth` → `feature_add_auth`
-- `feature_add_auth` → `feature_add_auth`
-
-### 4. Manual Cleanup Dependency
-
-If GitHub Action fails, schemas accumulate.
-
-**Mitigation**:
-- Monitor schema count
-- Add cron job to clean stale schemas
-- Check `pg_stat_user_tables` for last access time
-
-### 5. Build-Time Migration Failures
-
-If migration fails, build fails, schema is left in dirty state.
-
-**Mitigation**:
-- Test migrations locally first
-- Use idempotent migrations
-- Add rollback logic to prepare script
-
-## Production/Develop Branches
-
-Override the complete connection URL for production/develop:
-
-**Vercel Environment Variables**:
-```bash
-# Production
-DATABASE_URL_WITH_SCHEMA=postgresql://user:pass@host:5432/db?schema=public
-
-# Develop (optional)
-DATABASE_URL_WITH_SCHEMA=postgresql://user:pass@host:5432/db?schema=develop
-```
-
-When `DATABASE_URL_WITH_SCHEMA` is set, it takes precedence over the auto-computed URL. This is cleaner than managing separate `DB_SCHEMA` variables.
 
 ## Troubleshooting
 
-### Build fails: "relation does not exist"
+### "Table already exists" error
 
-**Cause**: Migration not run in preview schema.
+**Cause:** Migration tracking not in correct schema.
 
-**Fix**: Check build logs for migration errors. Ensure `npm run migrate` runs before `next build`.
-
-### Build fails: "Please provide either 'type' or 'entity' attribute"
-
-**Cause**: `tsx` uses esbuild which doesn't support `emitDecoratorMetadata`.
-
-**Fix**: Already implemented in this repo:
-1. Add `import 'reflect-metadata'` at the top of `scripts/prepare-preview-db.ts` and `src/lib/db.ts`
-2. Explicitly specify types in decorators: `@PrimaryKey({ type: 'number' })` instead of `@PrimaryKey()`
+**Fix:** Ensure both `schema` config and `search_path` are set in `mikro-orm.config.ts`.
 
 ### Todos not persisting
 
-**Cause**: Schema not created or wrong schema being used.
+**Cause:** Wrong schema being used at runtime.
 
-**Fix**: Check runtime logs for schema name. Verify `getSchemaName()` returns correct value.
+**Fix:** Check app logs for `[mikro-orm.config] Schema: ...` - verify it matches PR number.
 
-### Cleanup action fails
+### GitHub Action fails
 
-**Cause**: `DATABASE_URL` secret not set or malformed.
+**Cause:** `DATABASE_URL` secret not set or incorrect.
 
-**Fix**: Verify GitHub secret matches Vercel env var exactly. Test locally:
-
-```bash
-export DATABASE_URL="postgresql://..."
-psql "$DATABASE_URL" -c "SELECT 1"
-```
+**Fix:** Verify secret in GitHub Settings → Secrets → Actions matches exact connection string from Vercel.
 
 ### Schema quota exceeded
 
-**Cause**: Too many stale schemas.
+**Cause:** Stale schemas from failed cleanup.
 
-**Fix**: Manually clean:
-
+**Fix:** Manually drop old schemas:
 ```sql
--- List schemas with row counts
-SELECT
-  schema_name,
-  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = schema_name) as table_count
-FROM information_schema.schemata
-WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'public')
-ORDER BY schema_name;
-
--- Drop stale schemas
-DROP SCHEMA IF EXISTS "old_branch_name" CASCADE;
+DROP SCHEMA IF EXISTS pr_5 CASCADE;
 ```
 
-## When NOT to Use This
+## When to Use This vs. Neon/PlanetScale
 
-Use database branching (Neon, PlanetScale) instead if you need:
-- **True isolation**: Extensions, types, connection limits
-- **Zero ops**: Automatic cleanup without GitHub Actions
-- **Large teams**: 10+ concurrent PRs
-- **Production-scale previews**: Realistic data volumes
+**Use schema-per-branch when:**
+- You already have a Postgres database
+- You want portability (no vendor lock-in)
+- You have < 10 concurrent PRs
 
-This solution trades operational simplicity for portability.
+**Use Neon/PlanetScale when:**
+- You need true isolation (extensions, connection limits)
+- You want zero-ops (automatic cleanup)
+- You have 10+ concurrent PRs
 
-## Extending This Demo
-
-### Add Prisma Support
-
-Replace MikroORM with Prisma:
-
-```typescript
-// src/lib/prisma.ts
-import { PrismaClient } from '@prisma/client';
-import { getSchemaName } from './schema-utils';
-
-export const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: `${process.env.DATABASE_URL}?schema=${getSchemaName()}`,
-    },
-  },
-});
-```
-
-**Note**: Prisma uses connection string parameter `?schema=`, not schema option.
-
-### Add Monitoring
-
-```typescript
-// scripts/monitor-schemas.ts
-import { Client } from 'pg';
-
-const client = new Client({ connectionString: process.env.DATABASE_URL });
-await client.connect();
-
-const { rows } = await client.query(`
-  SELECT
-    schema_name,
-    pg_size_pretty(sum(pg_total_relation_size(table_schema || '.' || table_name))::bigint) as size
-  FROM information_schema.tables
-  WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-  GROUP BY schema_name
-  ORDER BY sum(pg_total_relation_size(table_schema || '.' || table_name)) DESC;
-`);
-
-console.table(rows);
-```
-
-Run weekly via GitHub Actions cron.
+This solution trades operational complexity for portability.
 
 ## License
 
 MIT
-
-## Contributing
-
-This is a demo project. Feel free to fork and adapt for your needs.
-
-## References
-
-- [Neon Branching Docs](https://neon.tech/docs/guides/branching)
-- [PlanetScale Branching](https://planetscale.com/docs/concepts/branching)
-- [Prisma Schema Parameter](https://www.prisma.io/docs/concepts/components/prisma-schema/data-sources#postgresql-schema-parameter)
-- [MikroORM Multi-tenancy](https://mikro-orm.io/docs/usage-with-multiple-schemas)
-- [Postgres Schema Docs](https://www.postgresql.org/docs/current/ddl-schemas.html)
