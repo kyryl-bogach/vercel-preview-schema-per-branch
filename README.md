@@ -396,6 +396,14 @@ When `DATABASE_URL_WITH_SCHEMA` is set, it takes precedence over the auto-comput
 
 **Fix**: Check build logs for migration errors. Ensure `npm run migrate` runs before `next build`.
 
+### Build fails: "Please provide either 'type' or 'entity' attribute"
+
+**Cause**: `tsx` uses esbuild which doesn't support `emitDecoratorMetadata`.
+
+**Fix**: Already implemented in this repo:
+1. Add `import 'reflect-metadata'` at the top of `scripts/prepare-preview-db.ts` and `src/lib/db.ts`
+2. Explicitly specify types in decorators: `@PrimaryKey({ type: 'number' })` instead of `@PrimaryKey()`
+
 ### Todos not persisting
 
 **Cause**: Schema not created or wrong schema being used.
