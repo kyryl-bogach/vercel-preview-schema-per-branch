@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { MikroORM } from '@mikro-orm/core';
 import config from '../src/lib/mikro-orm.config';
 import { getSchemaName } from '../src/lib/schema-utils';

@@ -2,15 +2,15 @@ import { Entity, PrimaryKey, Property } from '@mikro-orm/core';
 
 @Entity()
 export class Todo {
-  @PrimaryKey()
+  @PrimaryKey({ type: 'number' })
   id!: number;
 
-  @Property()
+  @Property({ type: 'string' })
   title!: string;
 
-  @Property()
+  @Property({ type: 'boolean' })
   completed: boolean = false;
 
-  @Property()
+  @Property({ type: 'Date' })
   createdAt: Date = new Date();
 }
