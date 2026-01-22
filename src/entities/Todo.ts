@@ -4,7 +4,7 @@ import { Entity, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core';
 export class Todo {
   [OptionalProps]?: 'completed' | 'createdAt';
 
-  @PrimaryKey({ type: 'number' })
+  @PrimaryKey({ autoincrement: true })
   id!: number;
 
   @Property({ type: 'string' })
