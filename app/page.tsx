@@ -77,12 +77,22 @@ export default async function Home() {
               <li key={todo.id} style={{ listStyle: 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <form action={toggleTodo.bind(null, todo.id)}>
-                    <input
-                      type="checkbox"
-                      checked={todo.completed}
-                      onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                      style={{ cursor: 'pointer' }}
-                    />
+                    <button
+                      type="submit"
+                      style={{
+                        background: 'none',
+                        border: '2px solid var(--primary)',
+                        width: '1.5rem',
+                        height: '1.5rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                      }}
+                    >
+                      {todo.completed && '✓'}
+                    </button>
                   </form>
                   <span
                     style={{
