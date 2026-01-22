@@ -130,7 +130,7 @@ export default async function Home() {
       <footer style={{ marginTop: '3rem', fontSize: '0.875rem', color: 'var(--muted-color)' }}>
         <p>
           This demo shows schema-per-branch preview deployments. Each PR gets its own isolated
-          database schema.
+          database schema. Works with any Postgres database!
         </p>
       </footer>
     </main>
