@@ -190,7 +190,6 @@ This is used by the cleanup workflow.
 │   └── prepare-preview-db.ts   # Pre-build: create schema + migrate
 ├── .github/workflows/
 │   └── cleanup-preview.yml     # Drop schema on PR close
-├── vercel.json                 # Build env config
 └── package.json                # Custom build script
 ```
 
