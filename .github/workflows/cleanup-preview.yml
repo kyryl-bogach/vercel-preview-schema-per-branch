@@ -1,0 +1,31 @@
+name: Cleanup Preview Schema
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine schema name
+        id: schema
+        run: |
+          # Strategy 1: Use PR number (preferred)
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            SCHEMA="pr_${{ github.event.pull_request.number }}"
+            echo "Using PR number strategy: $SCHEMA"
+          else
+            # Strategy 2: Sanitize branch name (fallback)
+            SCHEMA=$(echo "${{ github.head_ref }}" | sed 's/[\/\-]/_/g' | sed 's/[^a-zA-Z0-9_]/_/g' | tr '[:upper:]' '[:lower:]' | cut -c1-60)
+            echo "Using branch name strategy: $SCHEMA"
+          fi
+
+          echo "schema=$SCHEMA" >> $GITHUB_OUTPUT
+          echo "Will drop schema: $SCHEMA"
+
+      - name: Drop schema
+        run: |
+          echo "Dropping schema: ${{ steps.schema.outputs.schema }}"
+          psql "${{ secrets.DATABASE_URL }}" -c "DROP SCHEMA IF EXISTS \"${{ steps.schema.outputs.schema }}\" CASCADE"
+          echo "✅ Schema dropped successfully"
