@@ -57,7 +57,7 @@ export default async function Home() {
       <section>
         <h2>Add Todo</h2>
         <form action={addTodo}>
-          <div style={{ display: 'flex', gap: '1rem' }}>
+          <div style={{ display: 'flex', gap: '1.5rem' }}>
             <input
               type="text"
               name="title"
@@ -78,7 +78,7 @@ export default async function Home() {
           <ul>
             {todos.map((todo) => (
               <li key={todo.id} style={{ listStyle: 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
                   <form action={toggleTodo.bind(null, todo.id)}>
                     <button
                       type="submit"
