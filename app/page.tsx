@@ -83,8 +83,9 @@ export default async function Home() {
                     <button
                       type="submit"
                       style={{
-                        background: 'none',
-                        border: '2px solid var(--primary)',
+                        background: todo.completed ? '#1095c1' : 'transparent',
+                        border: '2px solid #1095c1',
+                        borderRadius: '4px',
                         width: '1.5rem',
                         height: '1.5rem',
                         cursor: 'pointer',
@@ -92,9 +93,12 @@ export default async function Home() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         padding: 0,
+                        color: todo.completed ? 'white' : '#1095c1',
+                        fontSize: '1rem',
+                        fontWeight: 'bold',
                       }}
                     >
-                      {todo.completed && '✓'}
+                      {todo.completed ? '✓' : ''}
                     </button>
                   </form>
                   <span
